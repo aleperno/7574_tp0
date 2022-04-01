@@ -28,6 +28,7 @@ services:
 
 networks:
   testing_net:
+    name: 7574_tp0_net
     ipam:
       driver: default
       config:
