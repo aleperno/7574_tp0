@@ -1,17 +1,53 @@
 import socket
 import logging
 import signal
+import os
+from .pool import CustomPool
+#from multiprocessing import Pool, active_children, cpu_count
 
 
 class SigtermException(Exception):
     pass
+
+
+def handle_client(client_sock):
+    """
+    Read message from a specific client socket and closes the socket
+
+    If a problem arises in the communication with the client, the
+    client socket will also be closed
+
+    If a SIGTERM is received, log the event and close the socket.
+    """
+    pid = os.getpid()
+    logging.info("Client Handler spawned %s", pid)
+    try:
+        msg = client_sock.recv(1024).rstrip().decode('utf-8')
+        logging.info(
+            'Message received from connection {}. Msg: {}'
+                .format(client_sock.getpeername(), msg))
+        client_sock.send("Your Message has been received: {}\n".format(msg).encode('utf-8'))
+    except OSError:
+        logging.info("Error while reading socket {}".format(client_sock))
+    except SigtermException:
+        logging.info("Process %s received SIGTERM", pid)
+    finally:
+        client_sock.close()
+
+
+def client_cleaner(client_sock):
+    """
+    Given a client sock, it closes it
+    """
+    client_sock.close()
+
 
 class Server:
     def __init__(self, port, listen_backlog):
         # Initialize server socket
         signal.signal(signal.SIGTERM, self.sigterm_handler)
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._server_socket.bind(('', port))
+        self._server_socket.bind(('', 12345))
         self._server_socket.listen(listen_backlog)
 
     def __enter__(self):
@@ -32,6 +68,10 @@ class Server:
         logging.info("Received SIGTERM")
         raise SigtermException
 
+    @staticmethod
+    def client_cleaner(client_sock):
+        client_sock.close()
+
     def run(self):
         """
         Dummy Server loop
@@ -40,40 +80,19 @@ class Server:
         communication with a client. After client with communucation
         finishes, servers starts to accept new connections again
         """
-
+        logging.info("Started Server process at %s", os.getpid())
+        pool = CustomPool(processes=os.environ.get('MAX_PROCESSES', os.cpu_count()))
+        pool.start()
         try:
             while True:
                 client_sock = self.__accept_new_connection()
-                self.__handle_client_connection(client_sock)
+                pool.apply_async(target=handle_client,
+                                 args=(client_sock,),
+                                 destroyer=client_cleaner)
         except SigtermException:
             logging.info("Gracefully shutting down server")
-            if 'client_sock' in locals():
-                # I don't like this a single bit. But there's not much else I can do, besides
-                # initializing 'client_sock' with a dummy object that takes a `close` method
-                # WHY? There's a slim change we get a SIGINT after accepting a new connection,
-                # but before we handled that client connection. Therefore that client socket
-                # will still be open.
-                # If the handler had already closed the socket, it's ok since the `close` is idempotent
-                # and performing a close in an already closed socket raises no errors
-                client_sock.close()
-
-    def __handle_client_connection(self, client_sock):
-        """
-        Read message from a specific client socket and closes the socket
-
-        If a problem arises in the communication with the client, the
-        client socket will also be closed
-        """
-        try:
-            msg = client_sock.recv(1024).rstrip().decode('utf-8')
-            logging.info(
-                'Message received from connection {}. Msg: {}'
-                .format(client_sock.getpeername(), msg))
-            client_sock.send("Your Message has been received: {}\n".format(msg).encode('utf-8'))
-        except OSError:
-            logging.info("Error while reading socket {}".format(client_sock))
-        finally:
-            client_sock.close()
+            pool.terminate()
+            pool.join()
 
     def __accept_new_connection(self):
         """
