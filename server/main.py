@@ -43,8 +43,8 @@ def main():
     logging.debug("Server configuration: {}".format(config_params))
 
     # Initialize server and start server loop
-    server = Server(config_params["port"], config_params["listen_backlog"])
-    server.run()
+    with Server(config_params["port"], config_params["listen_backlog"]) as server:
+        server.run()
 
 
 def initialize_log(logging_level):

@@ -1,13 +1,36 @@
 import socket
 import logging
+import signal
 
+
+class SigtermException(Exception):
+    pass
 
 class Server:
     def __init__(self, port, listen_backlog):
         # Initialize server socket
+        signal.signal(signal.SIGTERM, self.sigterm_handler)
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._server_socket.close()
+
+    def sigterm_handler(self, signum, frame):
+        """
+        Handler for SIGTERM signal
+
+        This handler will be used for both the main server process accepting new connections and
+        the server subprocesses handling clients' messages.
+
+        Since `socket.accept` is blocking, the only way to break the loop is raising an exception.
+        """
+        logging.info("Received SIGTERM")
+        raise SigtermException
 
     def run(self):
         """
@@ -18,11 +41,21 @@ class Server:
         finishes, servers starts to accept new connections again
         """
 
-        # TODO: Modify this program to handle signal to graceful shutdown
-        # the server
-        while True:
-            client_sock = self.__accept_new_connection()
-            self.__handle_client_connection(client_sock)
+        try:
+            while True:
+                client_sock = self.__accept_new_connection()
+                self.__handle_client_connection(client_sock)
+        except SigtermException:
+            logging.info("Gracefully shutting down server")
+            if 'client_sock' in locals():
+                # I don't like this a single bit. But there's not much else I can do, besides
+                # initializing 'client_sock' with a dummy object that takes a `close` method
+                # WHY? There's a slim change we get a SIGINT after accepting a new connection,
+                # but before we handled that client connection. Therefore that client socket
+                # will still be open.
+                # If the handler had already closed the socket, it's ok since the `close` is idempotent
+                # and performing a close in an already closed socket raises no errors
+                client_sock.close()
 
     def __handle_client_connection(self, client_sock):
         """
