@@ -47,7 +47,7 @@ class Server:
         # Initialize server socket
         signal.signal(signal.SIGTERM, self.sigterm_handler)
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._server_socket.bind(('', 12345))
+        self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
 
     def __enter__(self):
