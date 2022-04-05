@@ -5,7 +5,7 @@ services:
   server:
     container_name: server
     image: server:latest
-    entrypoint: python3 /main.py
+    entrypoint: [\"python3\",  \"/main.py\"]
     environment:
       - PYTHONUNBUFFERED=1
       - SERVER_PORT=12345
@@ -13,11 +13,14 @@ services:
       - LOGGING_LEVEL=DEBUG
     networks:
       - testing_net
+    volumes:
+      - ./server/config.ini:/config.ini
 "
 
 SUFFIX="
 networks:
   testing_net:
+    name: 7574_tp0_net
     ipam:
       driver: default
       config:
@@ -34,13 +37,12 @@ client$i:
     entrypoint: /client
     environment:
       - CLI_ID=$i
-      - CLI_SERVER_ADDRESS=server:12345
-      - CLI_LOOP_LAPSE=1m2s
-      - CLI_LOG_LEVEL=DEBUG
     networks:
       - testing_net
     depends_on:
       - server
+    volumes:
+      - ./client/config.yaml:/config.yaml
 "
 done
 
